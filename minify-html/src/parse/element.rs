@@ -2,6 +2,7 @@ use crate::ast::AttrVal;
 use crate::ast::ElementClosingTag;
 use crate::ast::NodeData;
 use crate::ast::ScriptOrStyleLang;
+use crate::cfg::Cfg;
 use crate::entity::decode::decode_entities;
 use crate::parse::content::parse_content;
 use crate::parse::content::ParsedContent;
@@ -131,7 +132,7 @@ pub fn parse_tag(code: &mut Code) -> ParsedTag {
 }
 
 // `<` must be next. `parent` should be an empty slice if it doesn't exist.
-pub fn parse_element(code: &mut Code, ns: Namespace, parent: &[u8]) -> NodeData {
+pub fn parse_element(cfg: &Cfg, code: &mut Code, ns: Namespace, parent: &[u8]) -> NodeData {
   let ParsedTag {
     name: elem_name,
     attributes,
@@ -146,11 +147,17 @@ pub fn parse_element(code: &mut Code, ns: Namespace, parent: &[u8]) -> NodeData 
   };
 
   // Only foreign elements can be self closed.
-  if self_closing && ns != Namespace::Html {
+  // However, if preserve_self_closing_on_non_void_tags is enabled,
+  // treat self-closing HTML elements as empty elements with explicit closing tags.
+  if self_closing && (ns != Namespace::Html || cfg.preserve_self_closing_on_non_void_tags) {
     return NodeData::Element {
       attributes,
       children: Vec::new(),
-      closing_tag: ElementClosingTag::SelfClosing,
+      closing_tag: if ns != Namespace::Html {
+        ElementClosingTag::SelfClosing
+      } else {
+        ElementClosingTag::Present
+      },
       name: elem_name,
       namespace: ns,
       next_sibling_element_name: Vec::new(),
@@ -183,7 +190,7 @@ pub fn parse_element(code: &mut Code, ns: Namespace, parent: &[u8]) -> NodeData 
     (_, b"style") => parse_style_content(code),
     (Namespace::Html, b"textarea") => parse_textarea_content(code),
     (Namespace::Html, b"title") => parse_title_content(code),
-    _ => parse_content(code, ns, parent, &elem_name),
+    _ => parse_content(cfg, code, ns, parent, &elem_name),
   };
 
   if !closing_tag_omitted {
